@@ -60,6 +60,7 @@ const init = async () => {
     board: createRandomInitialBoard(1, [0, 1, 2, 3]),
     selectedGems: [],
     queuedGems: [],
+    emptyCells: [],
   };
 
   const inputHandler = new ViewportInputHandler(viewport);

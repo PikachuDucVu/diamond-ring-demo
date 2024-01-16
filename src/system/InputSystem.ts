@@ -1,26 +1,36 @@
-import {
-  BOARD_COLS,
-  BOARD_ROWS,
-  calculateGridPos,
-  checkAllMatches,
-} from "../Constants";
+import { BOARD_COLS, BOARD_ROWS, calculateGridPos } from "../Constants";
 import { GameManager } from "../main";
+import { emitter } from "../util/emitter";
 
 export const InputSystem = (manager: GameManager) => {
   manager.addSystem(async () => {
-    const batch = manager.context.batch;
     const inputHandler = manager.context.inputHandler;
     const gameState = manager.context.gameState;
 
     let color = -1;
 
-    checkAllMatches(gameState.board, gameState.queuedGems);
+    const lastMove = [-1, -1];
+
+    const rollBackMove = () => {
+      if (lastMove[0] === -1 || lastMove[1] === -1) {
+        return;
+      }
+      const temp = gameState.board[lastMove[0]];
+      gameState.board[lastMove[0]] = gameState.board[lastMove[1]];
+      gameState.board[lastMove[1]] = temp;
+
+      gameState.selectedGems.length = 0;
+      lastMove[0] = -1;
+      lastMove[1] = -1;
+    };
+    emitter.on("rollBackGems", rollBackMove);
 
     return {
       process() {
         if (inputHandler.isTouched()) {
           const { x, y } = inputHandler.getTouchedWorldCoord();
           const { gridX, gridY } = calculateGridPos(x, y);
+          console.log(gridX + gridY * BOARD_COLS);
           if (
             gridX < 0 ||
             gridX >= BOARD_COLS ||
@@ -50,104 +60,23 @@ export const InputSystem = (manager: GameManager) => {
             gameState.selectedGems.push(gridX + gridY * BOARD_COLS);
           }
         } else {
-          // swap gem positions
           if (gameState.selectedGems.length === 2) {
-            const oldPos = gameState.selectedGems[0];
-            const newPos = gameState.selectedGems[1];
-            const temp = gameState.board[oldPos].color;
-            gameState.board[oldPos].color = gameState.board[newPos].color;
-            gameState.board[newPos].color = temp;
+            lastMove[0] = gameState.selectedGems[0];
+            lastMove[1] = gameState.selectedGems[1];
+            console.log(lastMove);
 
-            const matches: number[] = [];
-            matches.push(newPos);
-            let countGems = 1;
-
-            // check around up down right left, if same gems add at matches
-            // check next pos in row
-            for (
-              let i = newPos + 1;
-              i < Math.floor(newPos / BOARD_COLS) * BOARD_COLS + BOARD_COLS;
-              i++
-            ) {
-              if (gameState.board[i].color === gameState.board[newPos].color) {
-                countGems++;
-                console.log("next row", countGems);
-                if (countGems >= 2) {
-                  matches.push(i);
-                }
-              } else {
-                break;
-              }
-            }
-            // check previous pos in row
-            countGems = 1;
-            for (
-              let i = newPos - 1;
-              i >= Math.floor(newPos / BOARD_COLS) * BOARD_COLS;
-              i--
-            ) {
-              if (gameState.board[i].color === gameState.board[newPos].color) {
-                countGems++;
-                console.log("previos row", countGems);
-
-                if (countGems >= 2) {
-                  matches.push(i);
-                }
-              } else {
-                break;
-              }
-            }
-            // check next pos in col
-            countGems = 1;
-            for (
-              let i = newPos + BOARD_COLS;
-              i < BOARD_COLS * BOARD_ROWS;
-              i += BOARD_COLS
-            ) {
-              if (gameState.board[i].color === gameState.board[newPos].color) {
-                countGems++;
-                console.log("next col", countGems);
-
-                if (countGems >= 2) {
-                  matches.push(i);
-                }
-              } else {
-                break;
-              }
-            }
-            // check previous pos in col
-            countGems = 1;
-            for (let i = newPos - BOARD_COLS; i >= 0; i -= BOARD_COLS) {
-              if (gameState.board[i].color === gameState.board[newPos].color) {
-                countGems++;
-                console.log("back row", countGems);
-
-                if (countGems >= 2) {
-                  matches.push(i);
-                }
-              } else {
-                break;
-              }
-            }
-
-            if (matches.length >= 3) {
-              for (let i = 0; i < matches.length; i++) {
-                gameState.board[matches[i]].state = "empty";
-              }
-            } else {
-              setTimeout(() => {
-                const temp = gameState.board[oldPos].color;
-                gameState.board[oldPos].color = gameState.board[newPos].color;
-                gameState.board[newPos].color = temp;
-              }, 500);
-            }
+            emitter.emit(
+              "swapGems",
+              gameState.selectedGems[0],
+              gameState.selectedGems[1]
+            );
+            color = -1;
           }
-
-          color = -1;
-          gameState.selectedGems = [];
         }
       },
-      dispose() {},
+      dispose() {
+        emitter.off("rollBackGems", rollBackMove);
+      },
     };
   });
 };

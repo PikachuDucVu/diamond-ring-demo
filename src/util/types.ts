@@ -10,4 +10,5 @@ export type GameState = {
   moves: number;
   selectedGems: number[];
   queuedGems: number[];
+  emptyCells: number[];
 };
