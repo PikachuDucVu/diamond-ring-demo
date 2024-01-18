@@ -1,14 +1,36 @@
-export type CellState = "empty" | "gem" | "block";
-export type Cell = {
-  state: CellState;
-  color?: number;
-};
-export type GameState = {
-  board: Cell[];
-  roster: [number, number, number, number];
-  bossHealth: number;
-  moves: number;
-  selectedGems: number[];
-  queuedGems: number[];
-  emptyCells: number[];
-};
+import { GEM_COLORS_COUNT } from "../Constants";
+
+export type CellType = "empty" | "gem" | "block";
+
+const noop = () => {};
+export class Deferred {
+  public promise: Promise<void>;
+  public resolve: () => void = noop;
+  public reject: () => void = noop;
+  public elapsed = 0;
+  constructor(public duration: number) {
+    this.promise = new Promise((resolve, reject) => {
+      this.resolve = resolve;
+      this.reject = reject;
+    });
+  }
+}
+
+export interface Effect {
+  duration: number;
+  elapsed: number;
+}
+
+export interface GemOffsetEffect extends Effect {
+  index: number;
+  fromOffsetX: number;
+  fromOffsetY: number;
+  toOffsetX: number;
+  toOffsetY: number;
+}
+
+export interface ZoomEffect extends Effect {
+  index: number;
+  fromScale: number;
+  toScale: number;
+}

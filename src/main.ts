@@ -1,4 +1,5 @@
 import {
+  Color,
   MultiTextureBatch,
   ViewportInputHandler,
   createGameLoop,
@@ -6,33 +7,13 @@ import {
   createViewport,
 } from "gdxts";
 import { getAssets } from "./Assets";
-import { WORLD_WIDTH, WORLD_HEIGHT, BOARD_COLS, BOARD_ROWS } from "./Constants";
+import { WORLD_WIDTH, WORLD_HEIGHT } from "./Constants";
 import { Manager } from "./system-manager";
 import { GameRenderSystem } from "./system/GameRenderSystem";
 import { InputSystem } from "./system/InputSystem";
-import { Cell, GameState } from "./util/types";
 import { registerHandleBoardSystem } from "./system/HandleBoardSystem";
-
-const getBlockedCellIndices = (_level: number): number[] => {
-  return [];
-};
-
-const createRandomInitialBoard = (
-  level: number,
-  roster: [number, number, number, number]
-) => {
-  const blockIndices = getBlockedCellIndices(level);
-  const board: Cell[] = [];
-  for (let i = 0; i < BOARD_COLS * BOARD_ROWS; i++) {
-    if (blockIndices.includes(i)) {
-      board.push({ state: "block" });
-      continue;
-    }
-    const color = roster[Math.floor(Math.random() * roster.length)];
-    board.push({ state: "gem", color });
-  }
-  return board;
-};
+import { Deferred, GemOffsetEffect, ZoomEffect } from "./util/types";
+import { Board } from "./system/Board";
 
 const init = async () => {
   const stage = createStage();
@@ -53,17 +34,33 @@ const init = async () => {
   const batch = new MultiTextureBatch(gl);
   batch.setYDown(true);
 
-  const gameState: GameState = {
-    bossHealth: 100,
-    moves: 0,
-    roster: [0, 1, 2, 3],
-    board: createRandomInitialBoard(1, [0, 1, 2, 3]),
-    selectedGems: [],
-    queuedGems: [],
-    emptyCells: [],
+  const inputHandler = new ViewportInputHandler(viewport);
+
+  const gameState = {
+    dragging: false,
+    highlightedGem: -1,
+    stateTime: 0,
+    swapping: false,
+    moves: 30,
   };
 
-  const inputHandler = new ViewportInputHandler(viewport);
+  const gameConfig = {
+    started: false,
+    ended: false,
+  };
+
+  const board = new Board(8, 8);
+  board.randomBoard();
+
+  const effects: GemOffsetEffect[] = [];
+  const zoomEffect: ZoomEffect[] = [];
+  const pendings: Deferred[] = [];
+  const wait = (seconds: number) => {
+    const deferred = new Deferred(seconds);
+    pendings.push(deferred);
+    return deferred.promise;
+  };
+  const GEM_COLORS = [Color.RED, Color.GREEN, Color.BLUE, Color.WHITE];
 
   const manager = new Manager()
     .register("camera", camera)
@@ -72,15 +69,15 @@ const init = async () => {
     .register("assets", assets)
     .register("batch", batch)
     .register("gameState", gameState)
+    .register("board", board)
+    .register("effects", effects)
+    .register("zoomEffect", zoomEffect)
+    .register("wait", wait)
+    .register("gameConfig", gameConfig)
+    .register("GEM_COLORS", GEM_COLORS)
     .register("inputHandler", inputHandler);
 
-  // TODO: board render system
-  // TODO: board input system, capture touched down, touched up, and dragged: mark cell as selected, go back, fire connected event
-  // TODO: listen to connected event, mark cells as empty, new gems logic will be implemented later, effect spawning and damage logic will be implemented later too
-  // TODO: line render system, outline
-
   gl.clearColor(0, 0, 0, 1);
-
   GameRenderSystem(manager);
   InputSystem(manager);
   registerHandleBoardSystem(manager);
@@ -88,7 +85,36 @@ const init = async () => {
   const loop = createGameLoop((delta: number) => {
     gl.clear(gl.COLOR_BUFFER_BIT);
     batch.setProjection(camera.combined);
+    batch.begin();
+    // update pendings
+    for (let i = pendings.length - 1; i >= 0; i--) {
+      const pending = pendings[i];
+      pending.elapsed += delta;
+      if (pending.elapsed >= pending.duration) {
+        pending.resolve();
+        pendings.splice(i, 1);
+      }
+    }
+    // update effects
+    for (let i = effects.length - 1; i >= 0; i--) {
+      const effect = effects[i];
+      effect.elapsed += delta;
+      if (effect.elapsed >= effect.duration) {
+        effect.elapsed = effect.duration;
+        effects.splice(i, 1);
+      }
+    }
+    for (let i = zoomEffect.length - 1; i >= 0; i--) {
+      const effect = zoomEffect[i];
+      effect.elapsed += delta;
+      if (effect.elapsed >= effect.duration) {
+        effect.elapsed = effect.duration;
+        zoomEffect.splice(i, 1);
+      }
+    }
+
     manager.process(delta);
+    batch.end();
   });
 
   return {

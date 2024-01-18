@@ -1,136 +1,78 @@
-import { BOARD_COLS } from "../Constants";
+import { ZoomEffect } from "./../util/types";
 import { GameManager } from "../main";
 import { emitter } from "../util/emitter";
-import { Cell } from "../util/types";
+import { CELL_SIZE } from "../Constants";
 
 export const registerHandleBoardSystem = (manager: GameManager) => {
+  const board = manager.context.board;
   const gameState = manager.context.gameState;
-  let matched = false;
+  const zoomEffect = manager.context.zoomEffect;
+  const effects = manager.context.effects;
+  const wait = manager.context.wait;
 
-  const checkMatches = (board: Cell[]) => {
-    const matches: number[] = [];
-    let countMatchesGemPerTime = 0;
-    for (let i = 0; i < board.length; i++) {
-      countMatchesGemPerTime = 1;
-      matches.length = 0;
-      if (board[i].state === "gem") {
-        matches.push(i);
+  const checkAllBoard = async (type: "swapping" | "auto") => {
+    const matches = board.checkAllMatches();
 
-        for (
-          let j = i + 1;
-          j < Math.floor(i / BOARD_COLS) * BOARD_COLS + BOARD_COLS;
-          j++
-        ) {
-          if (board[i].color === board[j].color && board[j].state === "gem") {
-            matches.push(j);
-            countMatchesGemPerTime++;
-            continue;
-          } else {
-            break;
-          }
-        }
-        // check next pos in column
-        if (countMatchesGemPerTime < 3) {
-          countMatchesGemPerTime = 1;
-        }
-        for (let j = i + BOARD_COLS; j < board.length; j += BOARD_COLS) {
-          if (board[i].color === board[j].color && board[j].state === "gem") {
-            matches.push(j);
-            countMatchesGemPerTime++;
-            continue;
-          } else {
-            break;
-          }
-        }
-
-        if (countMatchesGemPerTime >= 3) {
-          gameState.queuedGems.push(...matches);
-          matched = true;
-        }
-      }
-    }
-  };
-
-  const swapGems = (index1: number, index2: number) => {
-    const temp = gameState.board[index1];
-    gameState.board[index1] = gameState.board[index2];
-    gameState.board[index2] = temp;
-    // gameState.moves++;
-    emitter.emit("checkingBoard");
-    gameState.selectedGems.length = 0;
-  };
-
-  emitter.on("swapGems", swapGems);
-
-  const moveEmptyCells = () => {
-    if (!gameState.emptyCells.length) {
+    if (matches.length === 0 && type === "swapping") {
+      await wait(0.25);
+      emitter.emit("rollBackGems");
       return;
-    }
-    for (let i = 0; i < gameState.emptyCells.length; i++) {
-      const index = gameState.emptyCells[i];
-      const currentRow = Math.floor(index / BOARD_COLS);
-      const currentCol = index % BOARD_COLS;
-      for (let j = currentRow; j > 0; j--) {
-        const indexAbove = j * BOARD_COLS + currentCol;
-        const indexCurrent = (j - 1) * BOARD_COLS + currentCol;
-        gameState.board[indexAbove] = gameState.board[indexCurrent];
-      }
-      gameState.board[currentCol] = { state: "empty" };
-    }
-    gameState.emptyCells.length = 0;
-    emitter.emit("spawnGems");
-  };
-  emitter.on("moveEmptyCells", moveEmptyCells);
-
-  const spawnNewGems = () => {
-    for (let i = 0; i < gameState.board.length; i++) {
-      if (gameState.board[i].state === "empty") {
-        const randomColor = Math.floor(Math.random() * 4);
-        gameState.board[i] = {
-          state: "gem",
-          color: randomColor,
-        };
-      }
-    }
-    emitter.emit("checkingBoard");
-  };
-  emitter.on("spawnGems", spawnNewGems);
-
-  const handleCheckBoard = () => {
-    checkMatches(gameState.board);
-
-    if (gameState.queuedGems.length) {
-      setTimeout(() => {
-        for (let i = 0; i < gameState.queuedGems.length; i++) {
-          gameState.board[gameState.queuedGems[i]].state = "empty";
-          gameState.emptyCells.push(gameState.queuedGems[i]);
-        }
-        gameState.queuedGems.length = 0;
-        setTimeout(() => {
-          emitter.emit("moveEmptyCells");
-        }, 200);
-      }, 500);
     } else {
-      if (!matched) {
-        setTimeout(() => {
-          emitter.emit("rollBackGems");
-        }, 500);
+      for (let i = 0; i < matches.length; i += 1) {
+        const cellsEmpty = [];
+        for (let j = 0; j < matches[i].length; j += 2) {
+          const col = matches[i][j];
+          const row = matches[i][j + 1];
+          board.changeGemType(col, row, "empty");
+          cellsEmpty.push([col, row]);
+          zoomEffect.push({
+            index: row * board.col + col,
+            fromScale: 1,
+            toScale: -0.1,
+            duration: 0.5,
+            elapsed: 0,
+          });
+        }
       }
-      matched = false;
+      await wait(0.25);
+
+      for (let i = 0; i < board.row; i++) {
+        for (let j = 0; j < board.col; j++) {
+          if (board.getCellType(j, i) === "empty") {
+            for (let k = i; k > 0; k--) {
+              if (board.getCellType(j, k - 1) === "empty") continue;
+              //push effect offset from start to end
+              effects.push({
+                index: j + k * board.col,
+                fromOffsetX: 0,
+                fromOffsetY: (CELL_SIZE / 1.5) * -(i - k),
+                toOffsetX: 0,
+                toOffsetY: 0,
+                duration: 0.15 * (i - k),
+                elapsed: 0,
+              });
+              board.changeGemType(j, k, "gem", board.getGemColor(j, k - 1));
+              board.changeGemType(j, k - 1, "empty");
+            }
+          }
+        }
+      }
+      // board.randomBoard();
+      // if (hasEmpty) {
+      //   await wait(0.5);
+      //   emitter.emit("checkingBoard", "auto");
+      // }
     }
   };
+
+  emitter.on("checkingBoard", checkAllBoard);
 
   manager.addSystem(async () => {
-    emitter.on("checkingBoard", handleCheckBoard);
-    emitter.emit("checkingBoard");
-
     return {
       process() {},
 
       dispose() {
-        emitter.off("checkingBoard", handleCheckBoard);
-        emitter.off("swapGems", swapGems);
-        emitter.off("moveEmptyCells", moveEmptyCells);
+        emitter.off("checkingBoard", checkAllBoard);
       },
     };
   });
